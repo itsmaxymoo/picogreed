@@ -44,12 +44,14 @@ jobs:
         run: xvfb-run -a python build.py
 
       - name: Upload release assets
-        uses: gitea/gitea-release-action@v1
+        uses: actions/forgejo-release@v2.13.4
         with:
-          state: upload
-          files: build/*
-          tag_name: ${{ github.event.release.tag_name }}
+          direction: upload
+          url: ${{ github.server_url }}
+          repo: ${{ github.repository }}
           token: ${{ secrets.FORGEJO_TOKEN }}
+          tag: ${{ github.event.release.tag_name }}
+          release-dir: build
 
       - name: Upload to itch.io (web)
         uses: robpc/itchio-upload-action@v1
