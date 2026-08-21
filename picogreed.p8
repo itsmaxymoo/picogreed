@@ -1,0 +1,1 @@
+/home/max/.lexaloffle/pico-8/carts/picogreed.p8
