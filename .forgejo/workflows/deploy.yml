@@ -54,7 +54,7 @@ jobs:
           release-dir: build
 
       - name: Upload to itch.io (web)
-        uses: robpc/itchio-upload-action@v1
+        uses: https://github.com/robpc/itchio-upload-action@v1
         with:
           path: build/picogreed_web.zip
           project: anthracitesoftware/picogreed
@@ -63,7 +63,7 @@ jobs:
           api-key: ${{ secrets.ITCH_TOKEN }}
 
       - name: Upload to itch.io (windows)
-        uses: robpc/itchio-upload-action@v1
+        uses: https://github.com/robpc/itchio-upload-action@v1
         with:
           path: build/picogreed_windows.zip
           project: anthracitesoftware/picogreed
@@ -72,7 +72,7 @@ jobs:
           api-key: ${{ secrets.ITCH_TOKEN }}
 
       - name: Upload to itch.io (linux)
-        uses: robpc/itchio-upload-action@v1
+        uses: https://github.com/robpc/itchio-upload-action@v1
         with:
           path: build/picogreed_linux.zip
           project: anthracitesoftware/picogreed
@@ -81,7 +81,7 @@ jobs:
           api-key: ${{ secrets.ITCH_TOKEN }}
 
       - name: Upload to itch.io (mac)
-        uses: robpc/itchio-upload-action@v1
+        uses: https://github.com/robpc/itchio-upload-action@v1
         with:
           path: build/picogreed_osx.zip
           project: anthracitesoftware/picogreed
@@ -90,7 +90,7 @@ jobs:
           api-key: ${{ secrets.ITCH_TOKEN }}
 
       - name: Upload to itch.io (p8)
-        uses: robpc/itchio-upload-action@v1
+        uses: https://github.com/robpc/itchio-upload-action@v1
         with:
           path: build/picogreed.p8.png
           project: anthracitesoftware/picogreed
