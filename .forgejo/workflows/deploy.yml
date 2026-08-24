@@ -42,6 +42,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y xvfb
 
       - name: Build
+        working-directory: ${{ github.workspace }}
         run: xvfb-run -a python build.py
 
       - name: Upload release assets
