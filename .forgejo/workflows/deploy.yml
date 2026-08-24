@@ -54,6 +54,7 @@ jobs:
           token: ${{ secrets.FORGEJO_TOKEN }}
           tag: ${{ github.event.release.tag_name }}
           release-dir: build
+          overwrite: true
 
       - name: Upload to itch.io (web)
         uses: https://github.com/robpc/itchio-upload-action@v1
