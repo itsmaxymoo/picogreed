@@ -1,0 +1,32 @@
+[000000] codo_init
+[000000]   platform: Linux
+[000000]   codo_system_init
+[000098]   Compiled against SDL version: 2.0.8
+[000098]   Linked against SDL version:   2.0.8
+[000098]   Current video driver: x11
+[000098]   codo_reset_timer
+[000098]   codo_gui_init
+[000098]   codo_keys_init
+[000098]   codo_text_init
+[000099]   codo_video_init
+[000099]   codo_mouse_init
+[000099]   codo_joystick_init
+[000099]   Reading controller mappings: /data/dev/picogreed/tmp/p8/sdl_controllers.txt
+[000099]   searching for joysticks
+[000099]     found 0 joysticks
+[000099]   ok
+[000099] ok
+[000104] codo_load_pod: /home/max/.local/share/pico8/pico8.dat ok 
+[000105] codo_set_screen 128 128 8 100
+[000105]  window size: 640 540
+[000105]  desktop size: 1920 1080
+[000105] ok
+[000106] codo_sound_init mix_buffer_size: 1024
+[000112] exporting html: picogreed.html 1 1
+[000117] 1. export html
+[000117] 1.a opening output: picogreed.html
+[000117] 1.b replacements
+[000118]  ok_
+[000122] codo_save_png result: 0  file: /data/dev/picogreed/tmp/p8/_label.png
+[000122]  ok_
+[000122] 2. writing picogreed.js

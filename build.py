@@ -5,27 +5,35 @@ import subprocess
 from pathlib import Path
 import zipfile
 
-BUILD_DIR = Path("build")
-EXPORT_DIR = Path("picogreed.bin")
-P8_FILE = "picogreed.p8"
+ROOT_DIR = Path(__file__).parent.resolve()
 
-# Create build directory
+# Resolve ./tmp/p8 as an absolute path inside the project
+P8_HOME = (ROOT_DIR / "tmp" / "p8").resolve()
+BUILD_DIR = ROOT_DIR / "build"
+EXPORT_DIR = ROOT_DIR / "picogreed.bin"
+P8_FILE = (ROOT_DIR / "picogreed.p8").as_posix()
+
+# Prepare directories
+P8_HOME.mkdir(parents=True, exist_ok=True)
 shutil.rmtree(BUILD_DIR, ignore_errors=True)
 BUILD_DIR.mkdir(exist_ok=True)
 
+# Base PICO-8 execution command with isolated home directory
+PICO8_BASE_CMD = ["pico8", "-home", P8_HOME.as_posix(), P8_FILE]
+
 # Run Pico-8 exports
 subprocess.run(
-    ["pico8", P8_FILE, "-export", "picogreed.bin -i 64 -c 16"],
+    [*PICO8_BASE_CMD, "-export", "picogreed.bin -i 64 -c 16"],
     check=True,
 )
 
 subprocess.run(
-    ["pico8", P8_FILE, "-export", "picogreed.p8.png"],
+    [*PICO8_BASE_CMD, "-export", "picogreed.p8.png"],
     check=True,
 )
 
 subprocess.run(
-    ["pico8", P8_FILE, "-export", "picogreed.html"],
+    [*PICO8_BASE_CMD, "-export", "picogreed.html"],
     check=True,
 )
 
