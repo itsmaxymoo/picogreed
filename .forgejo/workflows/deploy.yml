@@ -41,6 +41,39 @@ jobs:
       - name: Install Xvfb
         run: sudo apt-get update && sudo apt-get install -y xvfb
 
+      - name: Debug Environment and Paths
+        run: |
+          echo "=== CURRENT WORKING DIRECTORY ==="
+          pwd
+          
+          echo "=== CURRENT USER & PERMISSIONS ==="
+          id
+          
+          echo "=== DIRECTORY CONTENTS ==="
+          ls -la
+          
+          echo "=== CHECKING PICO-8 CART ==="
+          if [ -f "picogreed.p8" ]; then
+            echo "File exists at: $(realpath picogreed.p8)"
+            # Print the first few lines to ensure it's readable and not corrupted
+            head -n 3 picogreed.p8
+          else
+            echo "ERROR: picogreed.p8 DOES NOT EXIST IN THIS DIRECTORY!"
+          fi
+          
+          echo "=== CHECKING PICO-8 BINARY ==="
+          which pico8 || echo "pico8 not found in PATH"
+          ls -la $(which pico8 || echo "pico8")
+          
+          echo "=== GITHUB/FORGEJO ENVIRONMENT VARIABLES ==="
+          env | grep -E "GITHUB_|HOME|WORKSPACE|PWD|USER" | sort
+          
+          echo "=== HOME DIRECTORY CONTENTS ==="
+          ls -la "$HOME" || echo "Cannot access HOME directory"
+          
+          # Optional: Check if .lexaloffle exists yet
+          ls -la "$HOME/.lexaloffle" 2>/dev/null || echo "PICO-8 has not created a config directory yet"
+
       - name: Build
         working-directory: ${{ github.workspace }}
         run: xvfb-run -a python build.py
