@@ -1,1 +1,970 @@
-/home/max/.lexaloffle/pico-8/carts/picogreed.p8
+pico-8 cartridge // http://www.pico-8.com
+version 43
+__lua__
+-- PicoGreed
+-- by Max Loiacono
+
+-- #region Pico8 Helpers
+
+INT_MAX = 32767
+
+function us(s)
+    return unpack(split(s))
+end
+
+function dgetd(i, d)
+    local v = dget(i)
+    return v != 0 and v or d
+end
+
+-- #endregion
+
+-- #region State Machine
+
+State = {}
+State.__index = State
+
+function State.new(init, update, draw, transparent_update, transparent_draw)
+    return setmetatable(
+        {
+            init = init,
+            update = update,
+            draw = draw,
+            transparent_update = transparent_update,
+            transparent_draw = transparent_draw
+        }, State
+    )
+end
+
+_sm_state = {}
+
+function sm_push(state, params, on_pop)
+    add(_sm_state, { state = state, on_pop = on_pop })
+    state:init(params)
+end
+
+function sm_pop(result)
+    local entry = _sm_state[#_sm_state]
+    del(_sm_state, entry)
+    if entry.on_pop then
+        entry.on_pop(result)
+    end
+end
+
+function sm_clear()
+    _sm_state = {}
+end
+
+function sm_update()
+    for i = #_sm_state, 1, -1 do
+        if i == 1 or not _sm_state[i].state.transparent_update then
+            for j = i, #_sm_state do
+                _sm_state[j].state:update()
+            end
+            break
+        end
+    end
+end
+
+function sm_draw()
+    for i = #_sm_state, 1, -1 do
+        if i == 1 or not _sm_state[i].state.transparent_draw then
+            for j = i, #_sm_state do
+                _sm_state[j].state:draw()
+            end
+            break
+        end
+    end
+end
+
+-- #endregion
+
+-- #region Input Manager
+
+poke(0x5f2d, 0x1)
+BTN_PRIMARY, BTN_SECONDARY, BTN_UP, BTN_DOWN, BTN_LEFT, BTN_RIGHT, LMB, MMB, RMB = us "4,5,2,3,0,1,1,2,4"
+BTN_GLYPHS = split "🅾️,❎,⬆️,⬇️,⬅️,➡️"
+mouse_nx, mouse_ny, last_mouse, last_btn, mouse_down, mouse_up, mouse_x, mouse_y, prev_mouse_x, prev_mouse_y, mouse_just_down, _drag_start, drag_duration = us "0,0,0,0,0,0,0,0,0,0,0,0,0"
+click_drag_start_x, click_drag_start_y, click_drag_end_x, click_drag_end_y = nil
+
+function im_update()
+    prev_mouse_x, prev_mouse_y, mouse_x, mouse_y, t, prev_mouse_down, mouse_down = mouse_x, mouse_y, stat(32), stat(33), time(), mouse_down, stat(34)
+    mouse_up = prev_mouse_down & ~mouse_down
+    mouse_just_down = ~prev_mouse_down & mouse_down
+
+    if click_drag_end_x != nil then
+        click_drag_start_x, click_drag_start_y, click_drag_end_x, click_drag_end_y = nil
+    end
+    if (mouse_just_down & LMB) != 0 then
+        click_drag_start_x, click_drag_start_y, _drag_start = mouse_x, mouse_y, t
+    end
+    if (mouse_up & LMB) != 0 then
+        click_drag_end_x, click_drag_end_y, drag_duration = mouse_x, mouse_y, t - _drag_start
+    end
+
+    mouse_nx, mouse_ny = mouse_x - prev_mouse_x, mouse_y - prev_mouse_y
+
+    if mouse_down != 0 or mouse_up != 0 or mouse_nx != 0 or mouse_ny != 0 then
+        last_mouse = t
+    end
+
+    if abs(last_mouse) <= 0.0667 then last_mouse = 0 end
+
+    for b = 0, 5 do
+        if btn(b) then last_btn = t end
+    end
+end
+
+-- #endregion
+
+-- #region UI Widgets
+
+UI_PRIMARY_COLOR = 7
+UI_SECONDARY_COLOR = 6
+UI_BACKGROUND_COLOR = 0
+
+function uiw_panel(x1, y1, x2, y2, pc, bg)
+    rectfill(x1 - 1, y1 - 1, x2 + 1, y2 + 1, bg or UI_BACKGROUND_COLOR)
+    rectfill(x1, y1, x2, y2, pc or UI_PRIMARY_COLOR)
+    rectfill(x1 + 1, y1 + 1, x2 - 1, y2 - 1, bg or UI_BACKGROUND_COLOR)
+end
+
+UIWidget = {}
+UIWidget.__index = UIWidget
+
+function UIWidget.new(x, y, h, w)
+    return setmetatable(
+        {
+            x = x,
+            y = y,
+            h = h,
+            w = w,
+            focused = false,
+            clicked = false,
+            neighbor_up = nil,
+            neighbor_down = nil,
+            neighbor_left = nil,
+            neighbor_right = nil
+        }, UIWidget
+    )
+end
+
+function UIWidget:update()
+    self.clicked = false
+    if self.focused then
+        if btnp(BTN_PRIMARY) then
+            self.clicked = true
+        elseif self.neighbor_up and btnp(BTN_UP) then
+            self.neighbor_up.focused = true
+            self.focused = false
+        elseif self.neighbor_down and btnp(BTN_DOWN) then
+            self.neighbor_down.focused = true
+            self.focused = false
+        elseif self.neighbor_left and btnp(BTN_LEFT) then
+            self.neighbor_left.focused = true
+            self.focused = false
+        elseif self.neighbor_right and btnp(BTN_RIGHT) then
+            self.neighbor_right.focused = true
+            self.focused = false
+        end
+    end
+
+    if click_drag_end_x != nil and click_drag_start_x != nil and click_drag_start_x >= self.x and click_drag_start_x <= self.x + self.w and click_drag_start_y >= self.y and click_drag_start_y <= self.y + self.h and click_drag_end_x >= self.x and click_drag_end_x <= self.x + self.w and click_drag_end_y >= self.y and click_drag_end_y <= self.y + self.h then
+        self.focused, self.clicked = true, true
+    end
+end
+
+function UIWidget:draw() end
+
+function uiw_update(uiws)
+    for uiw in all(uiws) do
+        if mouse_just_down > 0 then
+            uiw.focused = false
+        end
+
+        fs = uiw.focused
+        uiw:update()
+
+        if fs != uiw.focused then
+            return
+        end
+    end
+end
+
+function uiw_draw(uiws)
+    for uiw in all(uiws) do
+        uiw:draw()
+    end
+end
+
+---------------------------------------------
+
+UIButton = {}
+UIButton.__index = UIButton
+setmetatable(UIButton, { __index = UIWidget })
+
+function UIButton.new(tx, ty, tw, label)
+    local self = UIWidget.new(tx * 8, ty * 8, 8, tw * 8)
+    setmetatable(self, UIButton)
+
+    self.label = label
+
+    return self
+end
+
+function UIButton:draw()
+    uiw_panel(self.x - 1, self.y - 1, self.x + self.w + 1, self.y + self.h + 1, UI_PRIMARY_COLOR)
+
+    if self.focused then
+        spr(180, self.x - 9, self.y + 1)
+        spr(180, self.x + self.w + 2, self.y + 1, 1, 1, true)
+    end
+
+    twp = #self.label * 4
+
+    print(self.label, self.x + flr((self.w - twp) / 2) + 1, self.y + 2, UI_PRIMARY_COLOR)
+end
+
+UIComboBoxH = {}
+UIComboBoxH.__index = UIComboBoxH
+setmetatable(UIComboBoxH, { __index = UIWidget })
+
+function UIComboBoxH.new(tx, ty, tw, options, selected)
+    local self = UIWidget.new(tx * 8, ty * 8, 8, tw * 8)
+    setmetatable(self, UIComboBoxH)
+
+    self.options = options
+    self.selected = selected != nil and selected or 1
+
+    return self
+end
+
+function UIComboBoxH:update()
+    self.clicked = false
+    if self.focused then
+        if btnp(BTN_PRIMARY) then
+            self.clicked = true
+        elseif self.neighbor_up and btnp(BTN_UP) then
+            self.neighbor_up.focused = true
+            self.focused = false
+        elseif self.neighbor_down and btnp(BTN_DOWN) then
+            self.neighbor_down.focused = true
+            self.focused = false
+        elseif btnp(BTN_RIGHT) then
+            self.focused = true
+            self.selected = min(#self.options, self.selected + 1)
+        elseif btnp(BTN_LEFT) then
+            self.focused = true
+            self.selected = max(1, self.selected - 1)
+        end
+    end
+
+    if click_drag_end_x != nil and click_drag_start_x != nil and click_drag_start_x >= self.x and click_drag_start_x <= self.x + self.w and click_drag_start_y >= self.y and click_drag_start_y <= self.y + self.h and click_drag_end_x >= self.x and click_drag_end_x <= self.x + self.w and click_drag_end_y >= self.y and click_drag_end_y <= self.y + self.h then
+        self.focused, self.clicked = true, true
+        self.selected += 1
+        if self.selected > #self.options then
+            self.selected = 1
+        end
+    end
+end
+
+function UIComboBoxH:draw()
+    uiw_panel(self.x - 1, self.y - 1, self.x + self.w + 1, self.y + self.h + 1, UI_PRIMARY_COLOR)
+
+    if self.focused and self.selected > 1 then
+        spr(180, self.x - 9, self.y + 1, 1, 1, true)
+    end
+    if self.focused and self.selected < #self.options then
+        spr(180, self.x + self.w + 2, self.y + 1, 1, 1)
+    end
+
+    label = self.options[self.selected].name
+    twp = #label * 4
+
+    print(label, self.x + flr((self.w - twp) / 2), self.y + 2, UI_PRIMARY_COLOR)
+end
+
+-- #endregion
+
+-- #region Constants and globals
+
+cartdata("picogreed_76193be1c403") -- savedata: 1 - animation speed; 2 - last gamemode; 4 - all time high score; 5 - 100% count; 6 - todays date; 7 - high score today;
+APP_TITLE, APP_AUTHOR, APP_URL = us "PicoGreed,Max Loiacono,anthracitesoftware.com"
+APP_VERSION = "1.0"
+DELTA = 0.01666666667
+IRAND = rnd(INT_MAX)
+DIRS = { { x = -1, y = 0 }, { x = 1, y = 0 }, { x = 0, y = -1 }, { x = 0, y = 1 } }
+TILE_W, TILE_H, TILE_P, GRID_O = us "3,5,2,2"
+ANIMATION_SPEED = dgetd(1, 2)
+WIN_COUNT = dgetd(5, 0)
+
+score, high_score_all_time, high_score_today, grid, pos, date = 0, 0, 0
+last_dir = { x = 1, y = 0 }
+
+-- #endregion
+
+-- #region Helpers
+
+function get_date_str(y, m, d)
+    local y = y or stat(90)
+    local m = m or stat(91)
+    local d = d or stat(92)
+
+    return "" .. y .. "-" .. sub("0" .. m, -1) .. "-" .. sub("0" .. d, -1)
+end
+
+function date_to_number(date)
+    local y, m, d = unpack(split(date, "-"))
+    return y + m / 100 + d / 10000
+end
+
+function date_to_str(date)
+    local y, m, d = flr(date), flr((date * 100) % 100), flr((date * 10000) % 100)
+    return get_date_str(y, m, d)
+end
+
+function score_to_str(score)
+    return sub("000" .. score, -3)
+end
+
+function mkgrid(rows, cols, seed)
+    if seed then
+        srand(seed)
+    else
+        srand(IRAND)
+        IRAND = rnd(INT_MAX)
+    end
+    local grid = {}
+    for r = 1, rows do
+        grid[r] = {}
+        for c = 1, cols do
+            grid[r][c] = flr(rnd(9) + 1)
+        end
+    end
+    return grid
+end
+
+function check_valid_move(dir)
+    local rows, cols = #grid, #grid[1]
+    local fx, fy = pos.x + dir.x, pos.y + dir.y
+    if fx < 1 or fx > cols or fy < 1 or fy > rows then
+        return 0
+    end
+    local n = grid[fy][fx]
+    if n <= 0 then
+        return 0
+    end
+    local nx, ny = pos.x + dir.x * n, pos.y + dir.y * n
+    if nx < 1 or nx > cols or ny < 1 or ny > rows then
+        return 0
+    end
+    for i = 1, n do
+        if grid[pos.y + dir.y * i][pos.x + dir.x * i] <= 0 then
+            return 0
+        end
+    end
+    return n
+end
+
+function get_valid_moves()
+    local moves = {}
+    for i = 1, #DIRS do
+        local dir = DIRS[i]
+        add(moves, check_valid_move(dir))
+    end
+    return moves
+end
+
+function draw_mouse()
+	if last_mouse > last_btn then
+		spr(1, mouse_x, mouse_y)
+	end
+end
+
+function draw_grid()
+    local rows, cols = #grid, #grid[1]
+    for r = 0, rows - 1 do
+        for c = 0, cols - 1 do
+            local n = grid[r + 1][c + 1]
+            local x, y = c * TILE_W + c * TILE_P + GRID_O, r * TILE_H + r * TILE_P + GRID_O
+            if n > 0 then
+                spr(47 + n, x, y)
+            elseif r + 1 != pos.y or c + 1 != pos.x then
+                spr(16, x, y)
+            end
+        end
+    end
+end
+
+function draw_player()
+    spr(58 - last_dir.y, (pos.x - 1) * (TILE_W + TILE_P) + GRID_O, (pos.y - 1) * (TILE_H + TILE_P) + GRID_O, 0.375, 1, last_dir.x == -1)
+end
+
+function draw_guides()
+    local moves = get_valid_moves()
+    for i = 1, #DIRS do
+        local dir = DIRS[i]
+        local n = moves[i]
+        if n > 0 then
+            if dir.y != 0 then
+                spr(17, (pos.x - 1) * (TILE_W + TILE_P), (pos.y + n * dir.y + min(dir.y, 0)) * (TILE_H + TILE_P), 0.875, 0.25, false, dir.y == 1)
+            elseif dir.x != 0 then
+                spr(18, (pos.x + n * dir.x + min(dir.x, 0)) * (TILE_W + TILE_P), (pos.y - 1) * (TILE_H + TILE_P), 0.25, 1.125, dir.x == 1, false)
+            end
+        end
+    end
+end
+
+function draw_info()
+    print("Score: " .. score_to_str(score), 8, 118, 7)
+    if not date then
+        if WIN_COUNT == 0 then
+            print("/ High Score: " .. score_to_str(high_score_all_time), 52, 118, 5)
+        else
+            print(" / Win Count: " .. WIN_COUNT, 52, 118, 5)
+        end
+    else
+        print("/ Best Today: " .. score_to_str(high_score_today), 52, 118, 5)
+    end
+end
+
+-- #endregion
+
+-- #region States
+
+STATE_TITLE = nil
+
+STATE_GAME_OVER = State.new(
+    function(self, win)
+        self.win = win
+        self.t = 0
+        sfx(2)
+
+        if win then
+            WIN_COUNT += 1
+            dset(5, WIN_COUNT)
+        end
+    end,
+    function(self)
+        if self.t < 0.5 then
+            self.t += DELTA
+        else
+            if btnp(BTN_PRIMARY) or btnp(BTN_SECONDARY) or mouse_just_down & LMB > 0 then
+                sm_clear()
+                sm_push(STATE_TITLE, 0.1)
+                return
+            end
+        end
+    end,
+    function(self)
+        draw_grid()
+        draw_player()
+        draw_info()
+        if self.t >= 0.5 then
+            rect(0, 6 * 8, 127, 9 * 8, 6)
+            rectfill(1, 6 * 8 + 1, 126, 9 * 8 - 1, 0)
+            local msg = self.win and "!CLEARED!" or "GAME OVER"
+            print(msg, 62 - #msg * 2, 6 * 8 + 6, 7)
+            msg = "Press 🅾️/❎ to continue"
+            print(msg, 60 - #msg * 2, 7 * 8 + 6, 7)
+        end
+    end
+)
+
+STATE_PLAY_MOVE = State.new(
+    function(self, dir)
+        self.dir = dir
+        self.t = 0
+        self.lpos = { x = pos.x, y = pos.y }
+        self.n = grid[pos.y + dir.y][pos.x + dir.x]
+        last_dir = dir
+    end,
+    function(self)
+        local initial = self.t
+        self.t += ANIMATION_SPEED * DELTA * 50
+        local ma = flr(min(self.n, self.t))
+        local mi = flr(max(1, initial + 1))
+
+        for i = mi, ma do
+            score += 1
+            sfx(0)
+            if score > high_score_all_time then
+                high_score_all_time = score
+            end
+            if score > high_score_today then
+                high_score_today = score
+            end
+            grid[self.lpos.y + self.dir.y * i][self.lpos.x + self.dir.x * i] = 0
+        end
+        pos.x = self.lpos.x + self.dir.x * min(self.n, self.t)
+        pos.y = self.lpos.y + self.dir.y * min(self.n, self.t)
+
+        if self.t >= self.n then
+            local game_over = true
+            local win = true
+            local moves = get_valid_moves()
+            for i = 1, #moves do
+                if moves[i] > 0 then
+                    game_over = false
+                    break
+                end
+            end
+            if game_over then
+                for r = 1, #grid do
+                    for c = 1, #grid[1] do
+                        if grid[r][c] > 0 then
+                            win = false
+                            break
+                        end
+                    end
+                end
+            end
+
+            sm_pop({ game_over = game_over, win = win })
+            if WIN_COUNT == 0 and score >= high_score_all_time then
+                high_score_all_time = score
+                dset(4, high_score_all_time)
+            end
+
+            if score >= high_score_today then
+                high_score_today = score
+                dset(7, high_score_today)
+            end
+        end
+    end,
+    function(self)
+        draw_grid()
+        draw_player()
+        draw_info()
+    end
+)
+
+STATE_PLAY_IDLE = State.new(
+    function(self)
+    end,
+    function(self)
+        local dir = nil
+        local ns = get_valid_moves()
+
+        for i = 1, #DIRS do
+            if btnp(i - 1) then
+                dir = DIRS[i]
+                break
+            end
+
+            local x1 = (pos.x + DIRS[i].x * ns[i] - 1) * (TILE_W + TILE_P) + GRID_O
+            local x2 = x1 + TILE_W
+            local y1 = (pos.y + DIRS[i].y * ns[i] - 1) * (TILE_H + TILE_P) + GRID_O
+            local y2 = y1 + TILE_H
+            if click_drag_end_x != nil and click_drag_end_x >= x1 and click_drag_end_x <= x2 and click_drag_end_y >= y1 and click_drag_end_y <= y2 and drag_duration < 0.2 and abs(click_drag_end_x - click_drag_start_x) + abs(click_drag_end_y - click_drag_start_y) < 25 then
+                dir = DIRS[i]
+                break
+            end
+        end
+        if not dir and click_drag_end_x != nil and drag_duration < 1 then
+            local dx = click_drag_end_x - click_drag_start_x
+            local dy = click_drag_end_y - click_drag_start_y
+            if abs(dx) + abs(dy) > 25 then
+                if abs(dx) > abs(dy) then
+                    dir = DIRS[dx > 0 and 2 or 1]
+                else
+                    dir = DIRS[dy > 0 and 4 or 3]
+                end
+            end
+        end
+
+        if dir and check_valid_move(dir) > 0 then
+            sm_push(
+                STATE_PLAY_MOVE, dir, function(result)
+                    if result.game_over then
+                        sm_push(STATE_GAME_OVER, result.win)
+                    end
+                end
+            )
+        end
+    end,
+    function(self)
+        draw_grid()
+        draw_player()
+        draw_info()
+        draw_guides()
+    end
+)
+
+STATE_PLAY_INIT = State.new(
+    function(self, daily)
+        grid = mkgrid(16, 25, daily and date_to_number(get_date_str()) or nil)
+        -- this can never change or it will break high scores
+        grid[1][1] = 0
+        pos = { x = 1, y = 1 }
+
+        high_score_all_time = dgetd(4, 1)
+        if daily then
+            date = date_to_number(get_date_str())
+            if dgetd(6, 0) != date then
+                dset(6, date)
+                dset(7, 0)
+            end
+        else
+            date = nil
+        end
+        high_score_today = dgetd(7, 1)
+        score = 1
+        sm_pop()
+        sm_push(STATE_PLAY_IDLE)
+        sfx(1)
+    end,
+    function() end,
+    function() end
+)
+
+STATE_SETTINGS = State.new(
+    function(self)
+        self.cb_speed = UIComboBoxH.new(3, 12, 10, { { name = "Slow" }, { name = "Normal" }, { name = "Fast" } }, dgetd(1, 2))
+        self.btn_back = UIButton.new(3, 14, 10, "Back")
+        self.btn_back.focused = true
+        self.cb_speed.neighbor_down = self.btn_back
+        self.btn_back.neighbor_up = self.cb_speed
+        self.last_speed = self.cb_speed.selected
+    end,
+    function(self)
+        uiw_update({ self.cb_speed, self.btn_back })
+
+        if self.cb_speed.selected != self.last_speed then
+            self.last_speed = self.cb_speed.selected
+            ANIMATION_SPEED = self.last_speed == 1 and 0.25 or self.last_speed == 2 and 1 or 100
+            dset(1, self.last_speed)
+        end
+
+        if self.btn_back.clicked then
+            sm_pop()
+        end
+    end,
+    function(self)
+        print(APP_TITLE .. " v" .. APP_VERSION, 4.5 * 8, 3 * 8, 7)
+        print(APP_AUTHOR, 5 * 8, 4 * 8, 7)
+        print(APP_URL, 3 * 8, 5 * 8, 7)
+        print("Animation Speed", 3 * 8, 11 * 8, 7)
+        uiw_draw({ self.cb_speed, self.btn_back })
+    end
+)
+
+STATE_TITLE = State.new(
+    function(self, input_delay)
+        self.btn_play_daily = UIButton.new(3, 8, 10, "Daily Challenge")
+        self.btn_play_random = UIButton.new(3, 10, 10, "Random Game")
+        self.btn_settings = UIButton.new(8, 12, 5, "Settings")
+        self.btn_quit = UIButton.new(3, 12, 4, "Quit")
+        self.btn_play_daily.neighbor_down = self.btn_play_random
+        self.btn_play_random.neighbor_up = self.btn_play_daily
+        self.btn_play_random.neighbor_down = self.btn_quit
+        self.btn_settings.neighbor_up = self.btn_play_random
+        self.btn_settings.neighbor_left = self.btn_quit
+        self.btn_quit.neighbor_up = self.btn_play_random
+        self.btn_quit.neighbor_right = self.btn_settings
+        self.input_delay = input_delay and input_delay or 0
+        self.t = 0
+
+        grid = mkgrid(18, 25)
+
+        gm = dgetd(2, 0)
+        if gm == 0 then
+            self.btn_play_daily.focused = true
+        elseif gm == 1 then
+            self.btn_play_random.focused = true
+        end
+    end,
+    function(self)
+        if self.t >= self.input_delay then
+            uiw_update({ self.btn_play_daily, self.btn_play_random, self.btn_settings, self.btn_quit })
+        else
+            self.t += DELTA
+        end
+
+        if self.btn_play_daily.clicked then
+            dset(2, 0)
+            sm_push(STATE_PLAY_INIT, true)
+        elseif self.btn_play_random.clicked then
+            dset(2, 1)
+            sm_push(STATE_PLAY_INIT, false)
+        elseif self.btn_settings.clicked then
+            sm_push(STATE_SETTINGS)
+        elseif self.btn_quit.clicked then
+            cls()
+			extcmd("shutdown")
+			stop()
+        end
+    end,
+    function(self)
+        draw_grid()
+        uiw_panel(16, 16, 127 - 16, 40, UI_PRIMARY_COLOR)
+        uiw_panel(16, 56, 127 - 16, 127 - 16, UI_PRIMARY_COLOR)
+        map(0, 0, 2, 0, 16, 16)
+        uiw_draw({ self.btn_play_daily, self.btn_play_random, self.btn_settings, self.btn_quit })
+    end
+)
+
+-- #endregion
+
+ANIMATION_SPEED = ANIMATION_SPEED == 1 and 0.25 or ANIMATION_SPEED == 2 and 1 or 100
+sm_push(STATE_TITLE)
+
+function _update60()
+    im_update()
+    sm_update()
+end
+
+function _draw()
+    cls()
+    sm_draw()
+    draw_mouse()
+end
+
+__gfx__
+00000000550000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+00000000575000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+00700700577500000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+00077000577750000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+00077000055500000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+00700700000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+50500000aa000aa0aa00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+00000000a00000a0a000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+50500000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+50500000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+0000000000000000a000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+0000000000000000aa00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+0d00000033300000ccc000001010000088800000eee0000044400000fff00000bbb0000044000000440000000440000000000000000000000000000000000000
+0d0000000030000000c000001010000080000000e000000000400000f0f00000b0b0000033600000f30000006440000000000000000000000000000000000000
+0d00000033300000ccc000001110000088800000eee0000000400000fff00000bbb00000ff400000f66000006ff0000000000000000000000000000000000000
+0d0000003000000000c000000010000000800000e0e0000000400000f0f0000000b0000011600000146000004110000000000000000000000000000000000000
+0d00000033300000ccc000000010000088800000eee0000000400000fff0000000b0000011000000410000000110000000000000000000000000000000000000
+00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+88011033000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+55555550000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+55555550000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+dd022554000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+dd022554000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+00000550000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+cc08855f000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+cc08855f000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+00000000ddddddd003300ccccccc00111111110088888800eeeeee004444440022222200bbbbbb000ff000000000000000000000000000000000000000000000
+00000000ddddddd003300ccccccc00111111110088888800eeeeee004444440022222200bbbbbbb00ff000000000000000000000000000000000000000000000
+00000000dd000dd003300cc0000000110000110088000000ee00ee004400000022000000bb000bb00ff000000000000000000000000000000000000000000000
+00000000dd000dd003300cc0000000110000110088088800eeeeee004444440022222200bb000bb00ff000000000000000000000000000000000000000000000
+00000000ddddddd003300cc0000000110000110088088800eeeeee004444440022222200bb000bb00ff000000000000000000000000000000000000000000000
+00000000ddddddd003300cc0000000110000110088008800eeeee0004400000022000000bb000bb0000000000000000000000000000000000000000000000000
+00000000dd00000003300ccccccc00111111110088888800ee0eee004444440022222200bbbbbbb00ff000000000000000000000000000000000000000000000
+00000000dd00000003300ccccccc00111111110088888800ee00ee004444440022222200bbbbbb000ff000000000000000000000000000000000000000000000
+00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+00000000000000000000000000000000000070000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+00000000000000000000000000000000000007000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+00000000000000000000000000000000000000700000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+00000000000000000000000000000000000000700000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+00000000000000000000000000000000000007000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+00000000000000000000000000000000000070000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+__label__
+00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+0088800eee00ccc000d000888000d000bbb00bbb00eee00bbb00bbb00101000d0000d0003330033300bbb0044400ccc00bbb000d000fff0010100ccc00333000
+0080000e000000c000d000800000d000b0b00b0b00e0000b0b00b0b00101000d0000d0000030000300b0b000040000c00b0b000d000f0f001010000c00003000
+0088800eee00ccc000d000888000d000bbb00bbb00eee00bbb00bbb00111000d0000d0003330033300bbb0000400ccc00bbb000d000fff0011100ccc00333000
+0000800e0e0000c000d000008000d00000b0000b00e0e0000b0000b00001000d0000d000300003000000b000040000c0000b000d000f0f000010000c00300000
+0088800eee00ccc000d000888000d00000b0000b00eee0000b0000b00001000d0000d000333003330000b0000400ccc0000b000d000fff0000100ccc00333000
+00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+00bbb000d00033300101008880044400fff00444004440088800ccc00ccc00eee0044400bbb008880044400ccc0033300101004440088800333000d000444000
+00b0b000d00000300101008000000400f0f0000400004008000000c0000c00e000000400b0b00800000040000c0000300101000040080000003000d000004000
+00bbb000d00033300111008880000400fff00004000040088800ccc00ccc00eee0000400bbb008880000400ccc0033300111000040088800333000d000004000
+0000b000d00030000001000080000400f0f0000400004000080000c0000c00e0e000040000b00008000040000c0030000001000040000800300000d000004000
+0000b000d00033300001008880000400fff00004000040088800ccc00ccc00eee000040000b008880000400ccc0033300001000040088800333000d000004000
+00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+000d000bbb000d007777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777770ff00fff00101000
+000d000b0b000d0070000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000700f00f0f00101000
+000d000bbb000d007000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000070ff00fff00111000
+000d00000b000d0070000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000700f00f0f00001000
+000d00000b000d007000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000070ff00fff00001000
+00000000000000007000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000070000000000000000
+00000000000000007000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000070000000000000000
+0033300eee0044407000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000070440088800bbb000
+0000300e000000407000000000ddddddd003300ccccccc00111111110088888800eeeeee004444440044444400bbbbbb000ff000000000070040080000b0b000
+0033300eee0000407000000000ddddddd003300ccccccc00111111110088888800eeeeee004444440044444400bbbbbbb00ff000000000070040088800bbb000
+0030000e0e0000407000000000dd000dd003300cc0000000110000110088000000ee00ee004400000044000000bb000bb00ff00000000007004000080000b000
+0033300eee0000407000000000dd000dd003300cc0000000110000110088088800eeeeee004444440044444400bb000bb00ff00000000007004008880000b000
+00000000000000007000000000ddddddd003300cc0000000110000110088088800eeeeee004444440044444400bb000bb00ff000000000070000000000000000
+00000000000000007000000000ddddddd003300cc0000000110000110088008800eeeee0004400000044000000bb000bb0000000000000070000000000000000
+00fff00eee00ccc07000000000dd00000003300ccccccc00111111110088888800ee0eee004444440044444400bbbbbbb00ff0000000000704400eee00333000
+00f0f00e000000c07000000000dd00000003300ccccccc00111111110088888800ee00ee004444440044444400bbbbbb000ff0000000000700400e0000003000
+00fff00eee00ccc070000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000700400eee00333000
+00f0f00e0e0000c070000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000700400e0e00300000
+00fff00eee00ccc070000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000700400eee00333000
+00000000000000007000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000070000000000000000
+00000000000000007000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000070000000000000000
+003330033300eee07000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000070bb00ccc00101000
+000030000300e00070000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000700b0000c00101000
+003330033300eee07000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000070bb00ccc00111000
+003000030000e0e077777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777700b0000c00001000
+003330033300eee000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000b00ccc00001000
+00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+00fff004440044400444004440033300ccc00ccc0088800eee003330088800bbb00ccc00333000d000fff00888000d0000d000ccc00bbb000d000fff00333000
+00f0f00004000040000400004000030000c0000c0080000e00000030080000b0b0000c00003000d000f0f00800000d0000d00000c00b0b000d000f0f00003000
+00fff000040000400004000040033300ccc00ccc0088800eee003330088800bbb00ccc00333000d000fff00888000d0000d000ccc00bbb000d000fff00333000
+00f0f00004000040000400004003000000c0000c0000800e0e00300000080000b0000c00300000d000f0f00008000d0000d00000c0000b000d000f0f00300000
+00fff000040000400004000040033300ccc00ccc0088800eee00333008880000b00ccc00333000d000fff00888000d0000d000ccc0000b000d000fff00333000
+00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+00fff0033300ccc00fff00eee00eee0010100333008880088800eee000d0000d000444000d000ccc00ccc00bbb00bbb0088800101000d00088800fff00888000
+00f0f000030000c00f0f00e0000e000010100003008000080000e00000d0000d000004000d00000c0000c00b0b00b0b0080000101000d00080000f0f00800000
+00fff0033300ccc00fff00eee00eee0011100333008880088800eee000d0000d000004000d000ccc00ccc00bbb00bbb0088800111000d00088800fff00888000
+00f0f003000000c00f0f00e0e00e0e0000100300000080000800e0e000d0000d000004000d00000c0000c0000b0000b0000800001000d00000800f0f00008000
+00fff0033300ccc000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000008800fff00888000
+00000000000000007777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777770000000000000000
+00000000000000007000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000070000000000000000
+000d000bbb00ccc07000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000070ff000d000888000
+000d000b0b0000c070000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000700f000d000800000
+000d000bbb00ccc07000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000070ff000d000888000
+000d00000b0000c070000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000700f000d000008000
+000d00000b00ccc07000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000070ff000d000888000
+00000000000000007000000777777777777777777777777777777777777777777777777777777777777777777777777777777777770000070000000000000000
+00000000000000007000000700000000000000000000000000000000000000000000000000000000000000000000000000000000070000070000000000000000
+00eee00ccc00eee07000000700000000000000000000000000000000000000000000000000000000000000000000000000000000070000070010088800101000
+00e000000c00e0007007000700000000000000077707770700070700000000070707770700070007770770007707770000000000070007070010080000101000
+00eee00ccc00eee07000700700000000000770070700700700070700000077070707070700070007000707070007000000000000070070070110088800111000
+00e0e0000c00e0e07000070700000000000707077700700700077700000700077707770700070007700707070007700000000000070700070010000800001000
+00eee00ccc00eee07000070700000000000707070700700700000700000700070707070700070007000707070707000000000000070700070010088800001000
+00000000000000007000700700000000000770070707770777077700000077070707070777077707770707077707770000000000070070070000000000000000
+00000000000000007007000700000000000000000000000000000000000000000000000000000000000000000000000000000000070007070000000000000000
+000d000bbb0033307000000700000000000000000000000000000000000000000000000000000000000000000000000000000000070000070ff00fff00101000
+000d000b0b00003070000007777777777777777777777777777777777777777777777777777777777777777777777777777777777700000700f00f0f00101000
+000d000bbb0033307000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000070ff00fff00111000
+000d00000b00300070000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000700f00f0f00001000
+000d00000b0033307000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000070ff00fff00001000
+00000000000000007000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000070000000000000000
+00000000000000007000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000070000000000000000
+001010088800444070000007777777777777777777777777777777777777777777777777777777777777777777777777777777777700000703300ccc00101000
+00101008000000407000000700000000000000000000000000000000000000000000000000000000000000000000000000000000070000070030000c00101000
+001110088800004070000007000000000000000000000000000000000000000000000000000000000000000000000000000000000700000703300ccc00111000
+00001000080000407000000700000000000000000000000777077007700077077700000000077707770777000000000000000000070000070000000c00001000
+000010088800004070000007000000000000000000077007070707070707070777000000770707077707000000000000000000000700000703300ccc00001000
+00000000000000007000000700000000000000000007070777070707070707070700000700077707070770000000000000000000070000070000000000000000
+00000000000000007000000700000000000000000007700707070707070707070700000707070707070700000000000000000000070000070000000000000000
+00bbb000d0000d0070000007000000000000000000070707070707077707700707000007770707070707770000000000000000000700000708800ccc00eee000
+00b0b000d0000d007000000700000000000000000000000000000000000000000000000000000000000000000000000000000000070000070000000c00e00000
+00bbb000d0000d0070000007000000000000000000000000000000000000000000000000000000000000000000000000000000000700000708800ccc00eee000
+0000b000d0000d007000000777777777777777777777777777777777777777777777777777777777777777777777777777777777770000070080000c00e0e000
+0000b000d0000d0070000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000708800ccc00eee000
+00000000000000007000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000070000000000000000
+00000000000000007000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000070000000000000000
+00bbb003330088807000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000070cc00ccc00ccc000
+00b0b0000300800070000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000700c0000c0000c000
+00bbb003330088807000000777777777777777777777777777777777777777777777777777777777777777777777777777777777770000070cc00ccc00ccc000
+0000b0030000008070000007000000000000000000000000000000000000000000000000000000000000000000000000000000000700000700c0000c0000c000
+0000b003330088807000000700000000000000000000000000000000000000000000000000000000000000000000000000000000070000070cc00ccc00ccc000
+00000000000000007000000700000000000000000000000000000777077707770777077000770077000000000000000000000000070000070000000000000000
+00000000000000007000000700000000000000000000000000770700007000700070070707000700000000000000000000000000070000070000000000000000
+001010033300fff07000000700000000000000000000000007000770007000700070070707000777000000000000000000000000070000070010010100fff000
+001010000300f0f07000000700000000000000000000000000070700007000700070070707070007000000000000000000000000070000070010010100f0f000
+001110033300fff07000000700000000000000000000000007700777007000700777070707770770000000000000000000000000070000070110011100fff000
+000010030000f0f07000000700000000000000000000000000000000000000000000000000000000000000000000000000000000070000070010000100f0f000
+000010033300fff07000000700000000000000000000000000000000000000000000000000000000000000000000000000000000070000070010000100fff000
+00000000000000007000000777777777777777777777777777777777777777777777777777777777777777777777777777777777770000070000000000000000
+00000000000000007000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000070000000000000000
+003330033300ccc07000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000070010033300888000
+00003000030000c07000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000070010000300800000
+003330033300ccc07000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000070110033300888000
+00300003000000c07000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000070010030000008000
+003330033300ccc07777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777770010033300888000
+00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+00bbb00fff00eee00ccc001010010100ccc0010100fff00eee000d000eee00bbb00ccc00ccc001010044400fff00fff0033300eee00bbb00eee00eee00888000
+00b0b00f0f00e000000c00101001010000c0010100f0f00e00000d000e0000b0b0000c0000c001010000400f0f00f0f0000300e0000b0b00e0000e0000800000
+00bbb00fff00eee00ccc001110011100ccc0011100fff00eee000d000eee00bbb00ccc00ccc001110000400fff00fff0033300eee00bbb00eee00eee00888000
+0000b00f0f00e0e0000c00001000010000c0000100f0f00e0e000d000e0e0000b0000c0000c000010000400f0f00f0f0030000e0e0000b00e0e00e0e00008000
+0000b00fff00eee00ccc000010000100ccc0000100fff00eee000d000eee0000b00ccc00ccc000010000400fff00fff0033300eee0000b00eee00eee00888000
+00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+0088800bbb00fff00eee00fff0010100ccc00333000d000fff00bbb0033300ccc0033300eee001010044400fff000d000fff00fff00fff001010010100333000
+0080000b0b00f0f00e0000f0f001010000c00003000d000f0f00b0b000030000c0000300e00001010000400f0f000d000f0f00f0f00f0f001010010100003000
+0088800bbb00fff00eee00fff0011100ccc00333000d000fff00bbb0033300ccc0033300eee001110000400fff000d000fff00fff00fff001110011100333000
+000080000b00f0f00e0e00f0f000010000c00300000d000f0f0000b003000000c0030000e0e000010000400f0f000d000f0f00f0f00f0f000010000100300000
+008880000b00fff00eee00fff0000100ccc00333000d000fff0000b0033300ccc0033300eee000010000400fff000d000fff00fff00fff000010000100333000
+00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+
+__map__
+0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+0000005152535455565757595a00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+0000000000000000000000000000000039000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+__sfx__
+000100000b0500b0500b0500000026000250001f0001c000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+000a0000105500d5500b5500f5501455016550145500f5500b550135501a5501e500000001d500000001c500000001b5001a5001a500000000000000000000000000000000000000000000000000000000000000
+000600001355013550135501355011550115501155011550185501855018550185501855000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
