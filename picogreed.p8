@@ -290,7 +290,7 @@ end
 
 cartdata("picogreed_76193be1c403") -- savedata: 1 - animation speed; 2 - last gamemode; 4 - all time high score; 5 - 100% count; 6 - todays date; 7 - high score today;
 APP_TITLE, APP_AUTHOR, APP_URL = us "PicoGreed,Max Loiacono,anthracitesoftware.com"
-APP_VERSION = "1.0"
+APP_VERSION = "1.1"
 DELTA = 0.01666666667
 IRAND = rnd(INT_MAX)
 DIRS = { { x = -1, y = 0 }, { x = 1, y = 0 }, { x = 0, y = -1 }, { x = 0, y = 1 } }
