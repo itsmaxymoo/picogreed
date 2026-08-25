@@ -526,7 +526,7 @@ STATE_PLAY_MOVE = State.new(
                 dset(4, high_score_all_time)
             end
 
-            if score >= high_score_today then
+            if date and score >= high_score_today then
                 high_score_today = score
                 dset(7, high_score_today)
             end
